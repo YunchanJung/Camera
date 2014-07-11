@@ -16,14 +16,21 @@
 
 package com.android.camera.tinyplanet;
 
+import java.io.ByteArrayOutputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Date;
+import java.util.TimeZone;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
+
 import android.app.DialogFragment;
 import android.app.ProgressDialog;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.graphics.BitmapFactory;
-import android.graphics.Canvas;
 import android.graphics.Point;
-import android.graphics.RectF;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
@@ -39,25 +46,14 @@ import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.SeekBar.OnSeekBarChangeListener;
 
-import com.adobe.xmp.XMPException;
-import com.adobe.xmp.XMPMeta;
+//import com.adobe.xmp.XMPException;
+//import com.adobe.xmp.XMPMeta;
 import com.android.camera.CameraActivity;
 import com.android.camera.MediaSaveService;
 import com.android.camera.MediaSaveService.OnMediaSavedListener;
 import com.android.camera.exif.ExifInterface;
 import com.android.camera.tinyplanet.TinyPlanetPreview.PreviewSizeListener;
-import com.android.camera.util.XmpUtil;
 import com.android.camera2.R;
-
-import java.io.ByteArrayOutputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Date;
-import java.util.TimeZone;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * An activity that provides an editor UI to create a TinyPlanet image from a
@@ -100,7 +96,7 @@ public class TinyPlanetFragment extends DialogFragment implements PreviewSizeLis
      * Lock for the result preview bitmap. We can't change it while we're trying
      * to draw it.
      */
-    private Lock mResultLock = new ReentrantLock();
+    private final Lock mResultLock = new ReentrantLock();
 
     /** The title of the original panoramic image. */
     private String mOriginalTitle = "";
@@ -111,7 +107,7 @@ public class TinyPlanetFragment extends DialogFragment implements PreviewSizeLis
     private Bitmap mResultBitmap;
 
     /** Used to delay-post a tiny planet rendering task. */
-    private Handler mHandler = new Handler();
+    private final Handler mHandler = new Handler();
     /** Whether rendering is in progress right now. */
     private Boolean mRendering = false;
     /**
@@ -167,7 +163,8 @@ public class TinyPlanetFragment extends DialogFragment implements PreviewSizeLis
                     return null;
                 }
 
-                protected void onPostExecute(Void result) {
+                @Override
+				protected void onPostExecute(Void result) {
                     mPreview.setBitmap(mResultBitmap, mResultLock);
                     synchronized (mRendering) {
                         mRendering = false;
@@ -268,12 +265,12 @@ public class TinyPlanetFragment extends DialogFragment implements PreviewSizeLis
         Bitmap sourceBitmap = BitmapFactory.decodeStream(is);
 
         is = getInputStream(sourceImageUri);
-        XMPMeta xmp = XmpUtil.extractXMPMeta(is);
+		/*XMPMeta xmp = XmpUtil.extractXMPMeta(is);
 
-        if (xmp != null) {
-            int size = previewSize ? getDisplaySize() : sourceBitmap.getWidth();
-            sourceBitmap = createPaddedBitmap(sourceBitmap, xmp, size);
-        }
+		if (xmp != null) {
+		    int size = previewSize ? getDisplaySize() : sourceBitmap.getWidth();
+		    sourceBitmap = createPaddedBitmap(sourceBitmap, xmp, size);
+		}*/
         return sourceBitmap;
     }
 
@@ -443,57 +440,58 @@ public class TinyPlanetFragment extends DialogFragment implements PreviewSizeLis
     }
 
     /**
-     * To create a proper TinyPlanet, the input image must be 2:1 (360:180
-     * degrees). So if needed, we pad the source image with black.
-     */
-    private static Bitmap createPaddedBitmap(Bitmap bitmapIn, XMPMeta xmp, int intermediateWidth) {
-        try {
-            int croppedAreaWidth =
-                    getInt(xmp, CROPPED_AREA_IMAGE_WIDTH_PIXELS);
-            int croppedAreaHeight =
-                    getInt(xmp, CROPPED_AREA_IMAGE_HEIGHT_PIXELS);
-            int fullPanoWidth =
-                    getInt(xmp, CROPPED_AREA_FULL_PANO_WIDTH_PIXELS);
-            int fullPanoHeight =
-                    getInt(xmp, CROPPED_AREA_FULL_PANO_HEIGHT_PIXELS);
-            int left = getInt(xmp, CROPPED_AREA_LEFT);
-            int top = getInt(xmp, CROPPED_AREA_TOP);
+	 * To create a proper TinyPlanet, the input image must be 2:1 (360:180
+	 * degrees). So if needed, we pad the source image with black.
+	 */
+	/*
+	private static Bitmap createPaddedBitmap(Bitmap bitmapIn, XMPMeta xmp, int intermediateWidth) {
+	 try {
+	     int croppedAreaWidth =
+	             getInt(xmp, CROPPED_AREA_IMAGE_WIDTH_PIXELS);
+	     int croppedAreaHeight =
+	             getInt(xmp, CROPPED_AREA_IMAGE_HEIGHT_PIXELS);
+	     int fullPanoWidth =
+	             getInt(xmp, CROPPED_AREA_FULL_PANO_WIDTH_PIXELS);
+	     int fullPanoHeight =
+	             getInt(xmp, CROPPED_AREA_FULL_PANO_HEIGHT_PIXELS);
+	     int left = getInt(xmp, CROPPED_AREA_LEFT);
+	     int top = getInt(xmp, CROPPED_AREA_TOP);
 
-            if (fullPanoWidth == 0 || fullPanoHeight == 0) {
-                return bitmapIn;
-            }
-            // Make sure the intermediate image has the similar size to the
-            // input.
-            Bitmap paddedBitmap = null;
-            float scale = intermediateWidth / (float) fullPanoWidth;
-            while (paddedBitmap == null) {
-                try {
-                    paddedBitmap = Bitmap.createBitmap(
-                            (int) (fullPanoWidth * scale), (int) (fullPanoHeight * scale),
-                            Bitmap.Config.ARGB_8888);
-                } catch (OutOfMemoryError e) {
-                    System.gc();
-                    scale /= 2;
-                }
-            }
-            Canvas paddedCanvas = new Canvas(paddedBitmap);
+	     if (fullPanoWidth == 0 || fullPanoHeight == 0) {
+	         return bitmapIn;
+	     }
+	     // Make sure the intermediate image has the similar size to the
+	     // input.
+	     Bitmap paddedBitmap = null;
+	     float scale = intermediateWidth / (float) fullPanoWidth;
+	     while (paddedBitmap == null) {
+	         try {
+	             paddedBitmap = Bitmap.createBitmap(
+	                     (int) (fullPanoWidth * scale), (int) (fullPanoHeight * scale),
+	                     Bitmap.Config.ARGB_8888);
+	         } catch (OutOfMemoryError e) {
+	             System.gc();
+	             scale /= 2;
+	         }
+	     }
+	     Canvas paddedCanvas = new Canvas(paddedBitmap);
 
-            int right = left + croppedAreaWidth;
-            int bottom = top + croppedAreaHeight;
-            RectF destRect = new RectF(left * scale, top * scale, right * scale, bottom * scale);
-            paddedCanvas.drawBitmap(bitmapIn, null, destRect, null);
-            return paddedBitmap;
-        } catch (XMPException ex) {
-            // Do nothing, just use mSourceBitmap as is.
-        }
-        return bitmapIn;
-    }
+	     int right = left + croppedAreaWidth;
+	     int bottom = top + croppedAreaHeight;
+	     RectF destRect = new RectF(left * scale, top * scale, right * scale, bottom * scale);
+	     paddedCanvas.drawBitmap(bitmapIn, null, destRect, null);
+	     return paddedBitmap;
+	 } catch (XMPException ex) {
+	     // Do nothing, just use mSourceBitmap as is.
+	 }
+	 return bitmapIn;
+	}
 
-    private static int getInt(XMPMeta xmp, String key) throws XMPException {
-        if (xmp.doesPropertyExist(GOOGLE_PANO_NAMESPACE, key)) {
-            return xmp.getPropertyInteger(GOOGLE_PANO_NAMESPACE, key);
-        } else {
-            return 0;
-        }
-    }
+	private static int getInt(XMPMeta xmp, String key) throws XMPException {
+	 if (xmp.doesPropertyExist(GOOGLE_PANO_NAMESPACE, key)) {
+	     return xmp.getPropertyInteger(GOOGLE_PANO_NAMESPACE, key);
+	 } else {
+	     return 0;
+	 }
+	}*/
 }

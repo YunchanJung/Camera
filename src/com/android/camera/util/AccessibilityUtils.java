@@ -1,6 +1,8 @@
 package com.android.camera.util;
 
+import android.annotation.TargetApi;
 import android.content.Context;
+import android.os.Build;
 import android.support.v4.view.accessibility.AccessibilityRecordCompat;
 import android.view.View;
 import android.view.accessibility.AccessibilityEvent;
@@ -11,7 +13,8 @@ import android.view.accessibility.AccessibilityManager;
  * in this class are made compatible with gingerbread and later API's
 */
 public class AccessibilityUtils {
-    public static void makeAnnouncement(View view, CharSequence announcement) {
+	@TargetApi(Build.VERSION_CODES.JELLY_BEAN)
+	public static void makeAnnouncement(View view, CharSequence announcement) {
         if (view == null)
             return;
         if (ApiHelper.HAS_ANNOUNCE_FOR_ACCESSIBILITY) {
